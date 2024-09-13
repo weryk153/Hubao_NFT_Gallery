@@ -1,70 +1,109 @@
-# Getting Started with Create React App
+# NFT Meta DApp
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+這是一個基於以太坊的去中心化應用程式（DApp），用於鑄造和管理 NFTs。該應用程式允許用戶連接他們的錢包，鑄造 NFT，並允許合約擁有者提領合約中的資金。
 
-## Available Scripts
+## 功能
 
-In the project directory, you can run:
+- **錢包連接**：使用 Web3Modal 連接錢包（如 MetaMask）。
+- **鑄造 NFT**：用戶可以支付一定的 ETH 鑄造一個新的 NFT。
+- **查看 NFT**：用戶可以查看他們已擁有的 NFT。
+- **提領功能**：合約擁有者可以提領合約中的資金。
 
-### `npm start`
+## 使用技術
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+- **React**：前端框架，用於構建應用界面。
+- **Ethers.js**：與以太坊區塊鏈進行互動的 JavaScript 庫。
+- **Web3Modal**：方便用戶連接他們的 Web3 錢包（如 MetaMask）。
+- **Tailwind CSS**：用於設計簡潔的 UI。
+- **Solidity**：智能合約的開發語言，用於實現 NFT 鑄造與提領的邏輯。
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+## 項目結構
 
-### `npm test`
+```plaintext
+/src
+  /components    # UI 元件
+  /contracts     # 合約相關邏輯
+  /styles        # Tailwind CSS 的自定義樣式
+  /utils         # 工具與輔助函數
+App.js           # 應用的主入口
+contractInfo.js  # 存儲合約的地址和 ABI
+```
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+## 合約
 
-### `npm run build`
+智能合約基於 ERC721 標準，並繼承了 `ERC721Enumerable` 和 `Ownable`。這個合約主要實現了以下功能：
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### 合約繼承
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+- **ERC721Enumerable**：此擴展允許合約追蹤所有代幣的總數，並使其可枚舉（Enumerable），可以查詢某個地址持有的所有代幣以及某個代幣在總集合中的索引，便於進行批量操作，如列出持有者的所有 NFT。
+- **Ownable**：`Ownable` 是 OpenZeppelin 提供的一個用來管理合約權限的模組。合約的所有者（通常是部署合約的人）擁有某些特殊的權限，如提領合約中的資金。
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+### 合約功能
 
-### `npm run eject`
+- **`mintNFTMeta(uint256 amount)`**：
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+  - 此函數允許用戶鑄造新的 NFT。
+  - 每次交易可以指定要鑄造的數量，並傳入相應的 ETH 進行支付。
+  - 此外，合約中可能設有鑄造的價格、數量限制等條件，防止過度鑄造。
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+  **參數**：
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+  - `amount`：用戶希望鑄造的 NFT 數量。
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+  **用途**：
 
-## Learn More
+  - 用戶可以支付一定的以太幣（ETH）來鑄造一個或多個 NFT，並在成功後，這些 NFT 將會記錄在用戶的錢包地址中。
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+- **`withdraw(address account)`**：
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+  - 此函數僅限合約的擁有者（Owner）調用，用於提領合約中累積的以太幣（ETH）。
+  - 當合約在銷售 NFT 或接受其他支付時，ETH 會累積到合約中，擁有者可以使用此函數將資金提領到指定地址。
 
-### Code Splitting
+  **參數**：
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+  - `account`：提領資金的目標地址。
 
-### Analyzing the Bundle Size
+  **用途**：
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+  - 合約擁有者可以定期或在特定時間點提領合約中累積的收益。
 
-### Making a Progressive Web App
+- **`_isSaleActive()`**：
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+  - 這是一個內部狀態變數或函數，用來檢查是否啟用了 NFT 的銷售狀態。當銷售活動啟動後，用戶才能進行 NFT 的鑄造。
 
-### Advanced Configuration
+  **用途**：
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+  - 在銷售期間允許用戶鑄造 NFT，當銷售關閉時禁止鑄造，防止超額供應或超出銷售窗口。
 
-### Deployment
+- **`tokenOfOwnerByIndex(address owner, uint256 index)`**：
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+  - 這個函數繼承自 `ERC721Enumerable`，允許查詢某個地址在特定索引位置的 NFT 代幣 ID。
 
-### `npm run build` fails to minify
+  **參數**：
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+  - `owner`：NFT 擁有者的地址。
+  - `index`：用戶擁有的 NFT 的索引（從 0 開始）。
+
+  **用途**：
+
+  - 用戶可以遍歷自己持有的 NFT 列表，並查詢每個 NFT 的代幣 ID。
+
+- **`tokenURI(uint256 tokenId)`**：
+
+  - 此函數用來查詢指定 `tokenId` 的元數據（metadata）URI。每個 NFT 會有其對應的元數據，元數據通常包含圖片、名稱、描述等信息，並儲存在像 IPFS 這樣的分佈式存儲系統中。
+
+  **參數**：
+
+  - `tokenId`：要查詢的 NFT 代幣 ID。
+
+  **用途**：
+
+  - 用戶可以通過該函數查詢他們的 NFT 詳細信息，並顯示相關的圖片、描述等。
+
+### 合約運作流程
+
+1. **合約部署**：擁有者部署智能合約，並設定初始參數（如 NFT 價格、最大鑄造數量等）。
+2. **啟動銷售**：擁有者可以通過啟動 `_isSaleActive` 狀態來開啟 NFT 銷售。
+3. **用戶鑄造**：用戶連接錢包，支付相應的 ETH 來鑄造 NFT，合約會將 NFT 分配給用戶的地址。
+4. **查看 NFT**：用戶可以查詢自己持有的 NFT 代幣 ID 和元數據（圖片、名稱等）。
+5. **提領資金**：合約擁有者可以定期提領合約中的 ETH，這些 ETH 來自用戶支付的鑄造費用。
