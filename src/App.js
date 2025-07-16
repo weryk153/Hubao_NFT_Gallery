@@ -1,17 +1,25 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { ethers, parseEther } from "ethers";
 import Web3Modal from "web3modal";
 import { contract_address, abi } from "./contractInfo";
 
 function App() {
-  const [account, setAccount] = useState(null);
+  const [account, setAccount] = useState("");
   const [isSaleActive, setIsSaleActive] = useState(false);
   const [signer, setSigner] = useState(null);
   const [contract, setContract] = useState(null);
   const [nfts, setNfts] = useState([]);
-  const [isOwner, setIsOwner] = useState(false); // 用來追蹤是否為合約擁有者
+  const [isOwner, setIsOwner] = useState(false);
   const [loadingMint, setLoadingMint] = useState(false);
   const [loadingWithdraw, setLoadingWithdraw] = useState(false);
+  const [loadingNFTs, setLoadingNFTs] = useState(false);
+  const [hasLoaded, setHasLoaded] = useState(false); // ✅ 新增防閃爍
+
+  const ipfsToHttp = (uri) =>
+    uri.replace(
+      "ipfs://",
+      "https://red-yeasty-termite-878.mypinata.cloud/ipfs/"
+    );
 
   const connectWallet = async () => {
     try {
@@ -19,59 +27,83 @@ function App() {
       const instance = await web3Modal.connect();
       const provider = new ethers.BrowserProvider(instance);
       const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+
       setSigner(signer);
-      const account = await signer.getAddress();
-      setAccount(account);
+      setAccount(address);
     } catch (error) {
       console.error("錢包連接失敗:", error);
+      alert("錢包連接失敗，請再試一次");
     }
   };
-  const fetchNFTs = async () => {
-    if (signer && contract && account) {
-      try {
-        const balance = await contract.balanceOf(account);
-        const nftData = [];
-        const balanceNumber = parseInt(balance.toString(), 10); // 轉換 BigNumber 為數字
 
-        for (let i = 0; i < balanceNumber; i++) {
-          const tokenId = await contract.tokenOfOwnerByIndex(account, i);
-          const tokenURI = await contract.tokenURI(tokenId);
-          const httpUri = tokenURI.replace(
-            "ipfs://",
-            "https://red-yeasty-termite-878.mypinata.cloud/ipfs/"
-          );
-          const response = await fetch(httpUri);
-          const data = await response.json();
+  const loadContract = useCallback(async () => {
+    if (signer) {
+      const contractInstance = new ethers.Contract(
+        contract_address,
+        abi,
+        signer
+      );
+      setContract(contractInstance);
 
-          nftData.push({
-            id: data.edition,
-            uri: data.image.replace(
-              "ipfs://",
-              "https://red-yeasty-termite-878.mypinata.cloud/ipfs/"
-            )
-          });
-        }
+      const saleActive = await contractInstance._isSaleActive();
+      setIsSaleActive(saleActive);
+    }
+  }, [signer]);
 
-        setNfts(nftData);
-      } catch (error) {
-        console.error("獲取 NFT 失敗:", error);
+  const fetchNFTs = useCallback(async () => {
+    if (!contract || !account) return;
+
+    try {
+      setHasLoaded(false); // 🟢 防閃爍：載入開始
+      setLoadingNFTs(true);
+      const balance = await contract.balanceOf(account);
+      const result = [];
+
+      for (let i = 0; i < balance; i++) {
+        const tokenId = await contract.tokenOfOwnerByIndex(account, i);
+        const tokenURI = await contract.tokenURI(tokenId);
+        const metadata = await fetch(ipfsToHttp(tokenURI)).then((res) =>
+          res.json()
+        );
+
+        result.push({
+          id: metadata.edition,
+          uri: ipfsToHttp(metadata.image)
+        });
       }
+
+      setNfts(result);
+    } catch (err) {
+      console.error("NFT 讀取失敗", err);
+    } finally {
+      setLoadingNFTs(false);
+      setHasLoaded(true); // ✅ 完成後才顯示 NFT 或空狀態
     }
-  };
+  }, [contract, account]);
+
+  const checkOwner = useCallback(async () => {
+    if (!contract || !account) return;
+    try {
+      const owner = await contract.owner();
+      setIsOwner(owner.toLowerCase() === account.toLowerCase());
+    } catch (error) {
+      console.error("檢查擁有者失敗:", error);
+    }
+  }, [contract, account]);
 
   const handleMint = async () => {
+    if (!contract) return;
     try {
       setLoadingMint(true);
-      const mintPrice = parseEther("0.01"); // 將 ETH 轉換為 wei
-      const tx = await contract?.mintNFTMeta(1, {
-        value: mintPrice // 傳遞鑄造 NFT 的 ETH
+      const tx = await contract.mintNFTMeta(1, {
+        value: parseEther("0.01")
       });
-
-      await tx?.wait(); // 等待交易被區塊鏈確認
-      alert("NFT 鑄造成功!");
-      fetchNFTs(); // 鑄造成功後重新獲取 NFT 列表
-    } catch (error) {
-      alert("鑄造失敗: " + error.message);
+      await tx.wait();
+      alert("鑄造成功！");
+      fetchNFTs(); // 🔄 重新載入 NFT
+    } catch (err) {
+      alert("鑄造失敗: " + err.message);
     } finally {
       setLoadingMint(false);
     }
@@ -82,123 +114,106 @@ function App() {
     try {
       setLoadingWithdraw(true);
       const tx = await contract.withdraw(account);
-      await tx?.wait();
-      alert("提領成功!");
-      fetchNFTs();
-    } catch (error) {
-      alert("提領失敗: " + error.message);
+      await tx.wait();
+      alert("提領成功！");
+    } catch (err) {
+      alert("提領失敗: " + err.message);
     } finally {
-      setLoadingWithdraw(false); // 提領結束時設置為 false
-    }
-  };
-
-  const checkOwner = async () => {
-    if (!contract || !account) return;
-    try {
-      const owner = await contract.owner(); // 從合約取得擁有者地址
-      setIsOwner(owner === account); // 檢查當前帳戶是否為擁有者
-    } catch (error) {
-      console.error("檢查擁有者失敗:", error);
+      setLoadingWithdraw(false);
     }
   };
 
   useEffect(() => {
-    const initializeContractAndCheckSaleStatus = async () => {
-      if (signer) {
-        try {
-          const contractInstance = new ethers.Contract(
-            contract_address,
-            abi,
-            signer
-          );
-          setContract(contractInstance);
-
-          // 檢查銷售狀態
-          const saleActive = await contractInstance._isSaleActive();
-          setIsSaleActive(saleActive);
-        } catch (error) {
-          console.error("合約操作失敗:", error);
-        }
-      }
-    };
-
-    initializeContractAndCheckSaleStatus();
-  }, [signer]);
+    loadContract();
+  }, [loadContract]);
 
   useEffect(() => {
     fetchNFTs();
-  }, [signer, contract, account]);
+  }, [fetchNFTs]);
 
   useEffect(() => {
     checkOwner();
-  }, [account, contract]);
+  }, [checkOwner]);
 
   return (
-    <div className="min-h-screen bg-gray-100 flex flex-col items-center p-6">
-      <div className="w-full max-w-lg bg-white p-6 rounded-lg shadow-lg">
+    <div className="min-h-screen bg-gradient-to-br from-black via-gray-900 to-gray-800 text-white flex flex-col items-center p-10">
+      <div className="w-full max-w-5xl bg-white/10 backdrop-blur-lg border border-white/20 rounded-2xl p-10 shadow-2xl">
         {!account ? (
           <button
             onClick={connectWallet}
-            className="bg-blue-500 text-white py-2 px-4 rounded hover:bg-blue-600 transition"
+            className="bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-6 rounded-xl transition"
           >
             連接錢包
           </button>
         ) : (
-          <p className="text-lg font-semibold mb-4">已連接錢包：{account}</p>
+          <p className="mb-6 text-lg">
+            🎉 歡迎，<span className="text-green-400">{account}</span>
+          </p>
         )}
 
-        {signer ? (
-          isSaleActive ? (
-            <button
-              onClick={handleMint}
-              className={`bg-green-500 text-white py-2 px-4 rounded hover:bg-green-600 transition ${
-                loadingMint ? "opacity-50 cursor-not-allowed" : ""
-              }`}
-              disabled={loadingMint}
-            >
-              {loadingMint ? "鑄造中..." : "鑄造 NFT"}
-            </button>
-          ) : (
-            <p className="text-red-500">尚未開賣</p>
-          )
-        ) : null}
+        {account && isSaleActive && (
+          <button
+            onClick={handleMint}
+            disabled={loadingMint}
+            className={`mb-6 max-w-xs w-full mx-auto py-3 px-6 rounded-xl font-bold transition text-white ${
+              loadingMint
+                ? "bg-gray-400 cursor-not-allowed"
+                : "bg-gradient-to-r from-blue-500 to-green-400 hover:opacity-90"
+            }`}
+          >
+            {loadingMint ? "鑄造中..." : "鑄造 NFT 🚀"}
+          </button>
+        )}
 
-        <div className="mt-6">
-          {account ? (
-            nfts.length > 0 ? (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {nfts.map((nft) => (
-                  <div
-                    key={nft.id}
-                    className="bg-white p-4 rounded-lg shadow-md"
-                  >
-                    <p className="text-lg font-semibold mb-2">
-                      Token ID: {nft.id}
-                    </p>
-                    <img
-                      src={nft.uri}
-                      alt={`NFT ${nft.id}`}
-                      className="w-full h-auto rounded-lg"
-                    />
-                  </div>
-                ))}
+        {account && !isSaleActive && (
+          <p className="text-red-400 mb-6">目前尚未開賣</p>
+        )}
+
+        {/* NFT 區塊 */}
+        <div className="grid grid-cols-3 gap-8">
+          {loadingNFTs ? (
+            Array.from({ length: 6 }).map((_, idx) => (
+              <div
+                key={idx}
+                className="h-72 bg-white/10 animate-pulse rounded-xl"
+              />
+            ))
+          ) : hasLoaded && nfts.length > 0 ? (
+            nfts.map((nft) => (
+              <div
+                key={nft.id}
+                className="bg-white/10 border border-white/20 rounded-xl overflow-hidden shadow-md transform hover:scale-105 transition duration-300"
+              >
+                <div className="bg-black p-4 h-64 flex items-center justify-center">
+                  <img
+                    src={nft.uri}
+                    alt={`NFT ${nft.id}`}
+                    className="max-h-full object-contain"
+                  />
+                </div>
+                <div className="p-4 text-center">
+                  <p className="font-bold text-white">🎨 Token ID: {nft.id}</p>
+                </div>
               </div>
-            ) : (
-              <p className="text-gray-500">沒有 NFT</p>
-            )
-          ) : (
-            ""
-          )}
+            ))
+          ) : hasLoaded && account ? (
+            <p className="col-span-3 text-center text-gray-300">
+              尚未持有任何 NFT 😿
+            </p>
+          ) : null}
         </div>
+
         {isOwner && (
           <button
-            className={`bg-red-500 text-white py-2 px-4 rounded hover:bg-green-600 transition mt-6 ${
-              loadingWithdraw ? "opacity-50 cursor-not-allowed" : ""
-            }`}
             onClick={handleWithdraw}
             disabled={loadingWithdraw}
+            className={`mt-10 max-w-xs w-full mx-auto py-3 px-6 rounded-xl font-bold transition ${
+              loadingWithdraw
+                ? "bg-gray-500 cursor-not-allowed"
+                : "bg-red-500 hover:bg-red-600"
+            }`}
           >
-            {loadingWithdraw ? "提領中..." : "提領"}
+            {loadingWithdraw ? "提領中..." : "💰 提領"}
           </button>
         )}
       </div>
